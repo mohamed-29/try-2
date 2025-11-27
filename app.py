@@ -6,16 +6,9 @@ import time
 app = Flask(__name__)
 
 # CONFIGURATION
-SERIAL_PORT = '/dev/ttyS1'  # Change this to your port (e.g., COM3 on Windows)
+# Update this to match your actual serial port (e.g., 'COM3' on Windows, '/dev/ttyUSB0' on Linux)
+SERIAL_PORT = '/dev/ttyS1' 
 vmc = VMCDriver(port=SERIAL_PORT)
-
-@app.before_first_request
-def start_driver():
-    """Start the serial thread when Flask starts"""
-    try:
-        vmc.start()
-    except Exception as e:
-        print(f"Failed to start VMC Driver: {e}")
 
 # --- GENERIC HELPERS ---
 def int_to_bytes(value, length):
@@ -84,6 +77,14 @@ def get_async_events():
         events.append(vmc.async_events.get())
     return jsonify(events)
 
+# --- STARTUP LOGIC ---
 if __name__ == '__main__':
-    # Threaded=True is required so Flask doesn't block the Serial Loop
+    # Start the Serial Driver before the web server
+    try:
+        print(f"[App] Starting VMC Driver on {SERIAL_PORT}...")
+        vmc.start()
+    except Exception as e:
+        print(f"[App] Failed to start VMC Driver: {e}")
+
+    # Run the Flask App
     app.run(host='0.0.0.0', port=5000, threaded=True)
