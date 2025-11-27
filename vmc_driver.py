@@ -187,13 +187,15 @@ class VMCDriver:
                     
                     self.pending_command['sent_status'] = 'SENT_WAITING_FOR_ACK'
                     self.pending_command['retries'] += 1
+                    
+                    # Log the sent command so we know it went out!
+                    print(f"[Driver] Sent Command {hex(cmd)} (Attempt {self.pending_command['retries']})")
+                    
                     send_ack = False # We sent data, so don't send ACK
             
             # STATE 2: ACK_RECEIVED
             # We already sent command and VMC said "OK". 
             # We are now just waiting for the Data Packet (e.g. Dispense Result).
-            # If VMC Polls us here, it's just checking in. We must say "ACK" (I'm here).
-            # Do NOT resend the command.
             elif status == 'ACK_RECEIVED':
                 send_ack = True 
 
