@@ -161,35 +161,44 @@ class VMCDriver:
 
     def _handle_poll(self):
         """VMC asked 'Do you have commands?'"""
-        # Do we have a job?
-        if self.pending_command and self.pending_command['sent_status'] != 'DONE':
-            
-            # Logic: Terminate after 5 failed tries
-            if self.pending_command['retries'] >= 5:
-                print("[Driver] Command failed 5 times. Terminating.")
-                with self.lock:
-                    self.last_response = {"error": "MAX_RETRIES_REACHED"}
-                    self.evt_response_ready.set()
-                    self.pending_command = None
-                # Send normal ACK to keep machine happy
-                self.serial.write(self.build_packet(CMD_ACK, [], 0))
-                return
+        # Default action is to send ACK (Idle)
+        send_ack = True
 
-            # Send the Command!
-            # Note: We do NOT increment packet_number here. Only on success.
-            cmd = self.pending_command['cmd']
-            data = self.pending_command['data']
+        if self.pending_command:
+            status = self.pending_command['sent_status']
             
-            raw_packet = self.build_packet(cmd, data, self.packet_number)
-            self.serial.write(raw_packet)
+            # STATE 1: WAITING_FOR_POLL or SENT_WAITING_FOR_ACK
+            # We have a command that needs to be sent (or resent if lost)
+            if status == 'WAITING_FOR_POLL' or status == 'SENT_WAITING_FOR_ACK':
+                if self.pending_command['retries'] >= 5:
+                    print("[Driver] Command failed 5 times. Terminating.")
+                    with self.lock:
+                        self.last_response = {"error": "MAX_RETRIES_REACHED"}
+                        self.evt_response_ready.set()
+                        # Do not clear pending_command here, logic continues to send ACK
+                    # send_ack remains True
+                else:
+                    # SEND THE COMMAND
+                    cmd = self.pending_command['cmd']
+                    data = self.pending_command['data']
+                    
+                    raw_packet = self.build_packet(cmd, data, self.packet_number)
+                    self.serial.write(raw_packet)
+                    
+                    self.pending_command['sent_status'] = 'SENT_WAITING_FOR_ACK'
+                    self.pending_command['retries'] += 1
+                    send_ack = False # We sent data, so don't send ACK
             
-            # Update Status
-            self.pending_command['sent_status'] = 'SENT_WAITING_FOR_ACK'
-            self.pending_command['retries'] += 1
-            # print(f"[Driver] Sent Command {hex(cmd)} (Attempt {self.pending_command['retries']})")
-            
-        else:
-            # Idle State: Just say ACK
+            # STATE 2: ACK_RECEIVED
+            # We already sent command and VMC said "OK". 
+            # We are now just waiting for the Data Packet (e.g. Dispense Result).
+            # If VMC Polls us here, it's just checking in. We must say "ACK" (I'm here).
+            # Do NOT resend the command.
+            elif status == 'ACK_RECEIVED':
+                send_ack = True 
+
+        # If no command logic took over, send the standard Idle ACK
+        if send_ack:
             self.serial.write(self.build_packet(CMD_ACK, [], 0))
 
     def _handle_ack(self):
